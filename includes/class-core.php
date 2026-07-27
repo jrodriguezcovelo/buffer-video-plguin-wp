@@ -42,35 +42,53 @@ class VSB_Core {
             array( __CLASS__, 'add_plugin_action_links' )
         );
 
-        // Elementor integration — deferred to 'plugins_loaded' so Elementor
-        // is guaranteed to be loaded before we try to include the widget class
-        // which extends \Elementor\Widget_Base.
-        add_action( 'plugins_loaded', array( __CLASS__, 'init_elementor' ) );
+        // Elementor widget registration — hooks registered unconditionally.
+        // The callbacks self-guard: they check for Widget_Base and include the
+        // widget file on demand. If Elementor is not active, these hooks simply
+        // never fire, so there's no overhead.
+        add_action( 'elementor/widgets/register', array( __CLASS__, 'register_elementor_widget' ) );
+        add_action( 'elementor/elements/categories_registered', array( __CLASS__, 'register_elementor_category' ) );
     }
 
     /**
-     * Initialize Elementor integration.
+     * Register the Video Stream Buffer widget with Elementor.
      *
-     * Loads the widget file and registers hooks only if Elementor is fully loaded
-     * and the Widget_Base class is available. We check for Widget_Base rather
-     * than \Elementor\Plugin because the latter can be true during wp-cron runs
-     * where Elementor's autoloader may not have loaded the base widget class.
+     * Self-guarding: only proceeds if Widget_Base is available (i.e. Elementor
+     * is the one firing this hook). Includes the widget file on demand.
      *
-     * @since 1.0.2
+     * @since 1.0.3
+     * @param \Elementor\Widgets_Manager $widgets_manager
      */
-    public static function init_elementor() {
-        // Check for the actual class we extend — not just Elementor\Plugin,
-        // which may exist without Widget_Base being loaded (e.g. during cron).
+    public static function register_elementor_widget( $widgets_manager ) {
         if ( ! class_exists( '\Elementor\Widget_Base' ) ) {
             return;
         }
 
-        // Now safe to include — the parent class is available.
         require_once VSB_PLUGIN_DIR . 'includes/elementor/class-widget-video-stream.php';
 
-        // Register Elementor hooks only when the widget class now exists.
-        add_action( 'elementor/widgets/register', array( 'VSB_Widget_Video_Stream', 'register' ) );
-        add_action( 'elementor/elements/categories_registered', array( 'VSB_Widget_Video_Stream', 'register_category' ) );
+        if ( class_exists( 'VSB_Widget_Video_Stream' ) ) {
+            $widgets_manager->register( new \VSB_Widget_Video_Stream() );
+        }
+    }
+
+    /**
+     * Register the Video Stream Buffer category with Elementor.
+     *
+     * Self-guarding: only proceeds if Widget_Base is available.
+     *
+     * @since 1.0.3
+     * @param \Elementor\Elements_Manager $elements_manager
+     */
+    public static function register_elementor_category( $elements_manager ) {
+        if ( ! class_exists( '\Elementor\Widget_Base' ) ) {
+            return;
+        }
+
+        require_once VSB_PLUGIN_DIR . 'includes/elementor/class-widget-video-stream.php';
+
+        if ( class_exists( 'VSB_Widget_Video_Stream' ) ) {
+            \VSB_Widget_Video_Stream::register_category( $elements_manager );
+        }
     }
 
     /**
