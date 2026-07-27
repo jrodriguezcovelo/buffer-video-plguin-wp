@@ -4,7 +4,7 @@ Tags: video, streaming, elementor, html5 video, range requests, media library, b
 Requires at least: 7.0.2
 Tested up to: 7.0.2
 Requires PHP: 8.3.32
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -123,6 +123,11 @@ MP4 (H.264), WebM, and Ogg. MP4 has the broadest browser support and is recommen
 The plugin implements multiple security measures: path traversal prevention via realpath validation, MIME type allowlisting, nonce protection on admin forms, and proper data sanitization/escaping throughout. The optional login-only restriction adds an additional access layer.
 
 == Changelog ==
+
+= 1.0.1 =
+* Fixed fatal error: "Class VSB_Widget_Video_Stream not found" when Elementor loads after this plugin
+* Elementor widget file loading deferred to 'plugins_loaded' hook to guarantee Elementor is available
+* Elementor hook registrations now guarded inside init_elementor()
 
 = 1.0.0 =
 * Initial release

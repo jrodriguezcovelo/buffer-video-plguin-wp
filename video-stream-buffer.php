@@ -11,7 +11,7 @@
  * Plugin Name:       Video Stream Buffer
  * Plugin URI:        https://example.com/video-stream-buffer
  * Description:       Delivers real video streaming via HTTP Range Requests from the WordPress Media Library, with a native Elementor widget and shortcode support.
- * Version:           1.0.0
+ * Version:           1.0.1
  * Requires at least: 7.0.2
  * Requires PHP:      8.3.32
  * Author:            Video Stream Buffer Team
@@ -27,7 +27,7 @@ defined( 'ABSPATH' ) || exit;
 /**
  * Plugin constants.
  */
-define( 'VSB_VERSION', '1.0.0' );
+define( 'VSB_VERSION', '1.0.1' );
 define( 'VSB_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VSB_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -50,10 +50,9 @@ require_once VSB_PLUGIN_DIR . 'includes/class-shortcode.php';
 // Load admin settings.
 require_once VSB_PLUGIN_DIR . 'includes/class-admin-settings.php';
 
-// Load Elementor widget — conditionally, so the plugin works fine without Elementor.
-if ( class_exists( '\Elementor\Plugin' ) || did_action( 'elementor/loaded' ) ) {
-    require_once VSB_PLUGIN_DIR . 'includes/elementor/class-widget-video-stream.php';
-}
+// Elementor widget loading is deferred to class-core.php (via 'plugins_loaded' hook)
+// to ensure Elementor itself has loaded before we try to include the widget class.
+// The widget file extends \Elementor\Widget_Base, so it can only be loaded after Elementor.
 
 // -----------------------------------------------------------------------------
 // Activation / Deactivation hooks
