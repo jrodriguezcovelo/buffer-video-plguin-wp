@@ -4,7 +4,7 @@ Tags: video, streaming, elementor, html5 video, range requests, media library, b
 Requires at least: 7.0.2
 Tested up to: 7.0.2
 Requires PHP: 8.3.32
-Stable tag: 1.0.1
+Stable tag: 1.0.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -123,6 +123,11 @@ MP4 (H.264), WebM, and Ogg. MP4 has the broadest browser support and is recommen
 The plugin implements multiple security measures: path traversal prevention via realpath validation, MIME type allowlisting, nonce protection on admin forms, and proper data sanitization/escaping throughout. The optional login-only restriction adds an additional access layer.
 
 == Changelog ==
+
+= 1.0.2 =
+* Fixed fatal error: "Class Elementor\Widget_Base not found" during wp-cron and early WordPress lifecycle
+* init_elementor() now checks for the actual parent class (\Elementor\Widget_Base) instead of \Elementor\Plugin
+* Prevents widget file inclusion when Elementor's autoloader hasn't loaded base widget classes
 
 = 1.0.1 =
 * Fixed fatal error: "Class VSB_Widget_Video_Stream not found" when Elementor loads after this plugin

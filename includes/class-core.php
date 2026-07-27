@@ -51,18 +51,21 @@ class VSB_Core {
     /**
      * Initialize Elementor integration.
      *
-     * Loads the widget file and registers hooks only if Elementor is active.
-     * This runs on 'plugins_loaded' (priority 20, after Elementor loads at 10)
-     * to ensure \Elementor\Widget_Base exists before our widget class is parsed.
+     * Loads the widget file and registers hooks only if Elementor is fully loaded
+     * and the Widget_Base class is available. We check for Widget_Base rather
+     * than \Elementor\Plugin because the latter can be true during wp-cron runs
+     * where Elementor's autoloader may not have loaded the base widget class.
      *
-     * @since 1.0.1
+     * @since 1.0.2
      */
     public static function init_elementor() {
-        if ( ! class_exists( '\Elementor\Plugin' ) ) {
+        // Check for the actual class we extend — not just Elementor\Plugin,
+        // which may exist without Widget_Base being loaded (e.g. during cron).
+        if ( ! class_exists( '\Elementor\Widget_Base' ) ) {
             return;
         }
 
-        // Now safe to include — Elementor is loaded.
+        // Now safe to include — the parent class is available.
         require_once VSB_PLUGIN_DIR . 'includes/elementor/class-widget-video-stream.php';
 
         // Register Elementor hooks only when the widget class now exists.
