@@ -12,8 +12,8 @@
  * Plugin URI:        https://example.com/video-stream-buffer
  * Description:       Delivers real video streaming via HTTP Range Requests from the WordPress Media Library, with a native Elementor widget and shortcode support.
  * Version:           1.0.0
- * Requires at least: 5.8
- * Requires PHP:      7.4
+ * Requires at least: 7.0.2
+ * Requires PHP:      8.3.32
  * Author:            Video Stream Buffer Team
  * Author URI:        https://example.com
  * Text Domain:       video-stream-buffer
@@ -52,7 +52,7 @@ require_once VSB_PLUGIN_DIR . 'includes/class-admin-settings.php';
 
 // Load Elementor widget — conditionally, so the plugin works fine without Elementor.
 if ( class_exists( '\Elementor\Plugin' ) || did_action( 'elementor/loaded' ) ) {
-	require_once VSB_PLUGIN_DIR . 'includes/elementor/class-widget-video-stream.php';
+    require_once VSB_PLUGIN_DIR . 'includes/elementor/class-widget-video-stream.php';
 }
 
 // -----------------------------------------------------------------------------
@@ -63,11 +63,11 @@ if ( class_exists( '\Elementor\Plugin' ) || did_action( 'elementor/loaded' ) ) {
  * Activation hook: flush rewrite rules so the REST API routes are discoverable.
  */
 function vsb_activate() {
-	// Flush rewrite rules so our REST route is available immediately.
-	flush_rewrite_rules();
+    // Flush rewrite rules so our REST route is available immediately.
+    flush_rewrite_rules();
 
-	// Set a transient to notify the admin of next steps.
-	set_transient( 'vsb_activation_notice', true, 30 );
+    // Set a transient to notify the admin of next steps.
+    set_transient( 'vsb_activation_notice', true, 30 );
 }
 register_activation_hook( __FILE__, 'vsb_activate' );
 
@@ -75,7 +75,7 @@ register_activation_hook( __FILE__, 'vsb_activate' );
  * Deactivation hook: flush rewrite rules to clean up.
  */
 function vsb_deactivate() {
-	flush_rewrite_rules();
+    flush_rewrite_rules();
 }
 register_deactivation_hook( __FILE__, 'vsb_deactivate' );
 

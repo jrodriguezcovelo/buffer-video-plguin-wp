@@ -1,9 +1,9 @@
 === Video Stream Buffer ===
 Contributors: videostreambuffer
 Tags: video, streaming, elementor, html5 video, range requests, media library, buffer
-Requires at least: 5.8
-Tested up to: 6.7
-Requires PHP: 7.4
+Requires at least: 7.0.2
+Tested up to: 7.0.2
+Requires PHP: 8.3.32
 Stable tag: 1.0.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -27,8 +27,8 @@ Video Stream Buffer enables true video streaming from your WordPress Media Libra
 
 **Requirements:**
 
-- WordPress 5.8+
-- PHP 7.4+
+- WordPress 7.0.2+
+- PHP 8.3.32+
 - Elementor 3.x+ (for widget support — the shortcode works without Elementor)
 
 == Installation ==
