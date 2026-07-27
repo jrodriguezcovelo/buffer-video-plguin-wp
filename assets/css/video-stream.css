@@ -1,30 +1,49 @@
 /**
  * Video Stream Buffer — Frontend Styles.
  *
- * Provides responsive video wrappers with aspect-ratio support, buffer
- * progress bar overlay, and error-state styling.
+ * Provides responsive video wrappers, aspect-ratio support, buffer progress bar
+ * overlay (legacy), and the custom video controls UI (v1.1.0+).
  *
  * @package VideoStreamBuffer
  * @since   1.0.0
  */
 
 /* -------------------------------------------------------------------------
+ * CSS Custom Properties (theming)
+ * ------------------------------------------------------------------------- */
+:root {
+    --vsb-controls-bg: rgba(0, 0, 0, 0.8);
+    --vsb-controls-progress: #00aaff;
+    --vsb-controls-buffered: rgba(255, 255, 255, 0.25);
+    --vsb-controls-text: #ffffff;
+    --vsb-controls-radius: 6px;
+}
+
+/* -------------------------------------------------------------------------
  * Video wrapper — base styles
  * ------------------------------------------------------------------------- */
 .vsb-video-wrapper {
-	position: relative;
-	width: 100%;
-	max-width: 100%;
-	overflow: hidden;
-	background-color: #000;
-	line-height: 0;
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    background-color: #000;
+    line-height: 0;
+    /* When custom controls are active, we want overflow visible for the
+       controls below the video (but not so for aspect-ratio containers). */
 }
 
 .vsb-video-wrapper video {
-	display: block;
-	width: 100%;
-	height: 100%;
-	object-fit: contain;
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    cursor: pointer;
+}
+
+/* Remove the default focus outline ring on the video when using custom controls. */
+.vsb-video-wrapper.vsb-custom-controls video:focus {
+    outline: none;
 }
 
 /* -------------------------------------------------------------------------
@@ -37,152 +56,628 @@
 
 /* 16:9 — padding-top: 56.25% = (9/16) * 100 */
 .vsb-video-wrapper.vsb-aspect-16-9 {
-	position: relative;
-	padding-top: 56.25%;
+    position: relative;
+    padding-top: 56.25%;
 }
 
 .vsb-video-wrapper.vsb-aspect-16-9 video {
-	position: absolute;
-	top: 0;
-	left: 0;
-	width: 100%;
-	height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
 }
 
 /* 4:3 — padding-top: 75% = (3/4) * 100 */
 .vsb-video-wrapper.vsb-aspect-4-3 {
-	position: relative;
-	padding-top: 75%;
+    position: relative;
+    padding-top: 75%;
 }
 
 .vsb-video-wrapper.vsb-aspect-4-3 video {
-	position: absolute;
-	top: 0;
-	left: 0;
-	width: 100%;
-	height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
 }
 
 /* 1:1 — padding-top: 100% */
 .vsb-video-wrapper.vsb-aspect-1-1 {
-	position: relative;
-	padding-top: 100%;
+    position: relative;
+    padding-top: 100%;
 }
 
 .vsb-video-wrapper.vsb-aspect-1-1 video {
-	position: absolute;
-	top: 0;
-	left: 0;
-	width: 100%;
-	height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
 }
 
-/* auto — no padding; video uses its native dimensions */
+/* auto — no padding; video uses its native dimensions.
+   Overflow must be visible so the controls below the video are not clipped. */
 .vsb-video-wrapper.vsb-aspect-auto {
-	padding-top: 0;
+    padding-top: 0;
+    overflow: visible;
 }
 
 .vsb-video-wrapper.vsb-aspect-auto video {
-	position: static;
-	height: auto;
+    position: static;
+    height: auto;
 }
 
 /* -------------------------------------------------------------------------
- * Buffer progress bar
+ * Legacy buffer progress bar (shown for native controls / backward compat)
  *
- * Positioned below the video (or overlaid) as a thin bar that shows how much
- * of the video has been buffered. The fill width is updated by JavaScript
+ * Positioned at the bottom of the video wrapper as a thin bar that shows how
+ * much of the video has been buffered. The fill width is updated by JavaScript
  * via the `--vsb-buffer-progress` CSS custom property.
  * ------------------------------------------------------------------------- */
-.vsb-video-wrapper .vsb-buffer-bar {
-	position: absolute;
-	bottom: 0;
-	left: 0;
-	right: 0;
-	height: 4px;
-	background-color: rgba(255, 255, 255, 0.3);
-	z-index: 5;
-	pointer-events: none;
+.vsb-video-wrapper:not(.vsb-custom-controls) .vsb-buffer-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background-color: rgba(255, 255, 255, 0.3);
+    z-index: 5;
+    pointer-events: none;
 }
 
-.vsb-video-wrapper .vsb-buffer-bar-fill {
-	height: 100%;
-	width: 0%;
-	background-color: #00aaff;
-	transition: width 0.3s ease;
+.vsb-video-wrapper:not(.vsb-custom-controls) .vsb-buffer-bar-fill {
+    height: 100%;
+    width: 0%;
+    background-color: #00aaff;
+    transition: width 0.3s ease;
 }
 
 /* Buffer progress is written as a CSS custom property by the JS. */
-.vsb-video-wrapper .vsb-buffer-bar-fill.vsb-buffering {
-	width: var(--vsb-buffer-progress, 0%);
+.vsb-video-wrapper:not(.vsb-custom-controls) .vsb-buffer-bar-fill.vsb-buffering {
+    width: var(--vsb-buffer-progress, 0%);
+}
+
+/* -------------------------------------------------------------------------
+ * Custom Controls — Container
+ * ------------------------------------------------------------------------- */
+.vsb-controls {
+    position: relative;
+    width: 100%;
+    background-color: var(--vsb-controls-bg);
+    border-radius: 0 0 var(--vsb-controls-radius) var(--vsb-controls-radius);
+    color: var(--vsb-controls-text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.4;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+    z-index: 10;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* Auto-hide: hidden state. */
+.vsb-controls.vsb-controls-hidden {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.vsb-controls.vsb-controls-visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* -------------------------------------------------------------------------
+ * Progress bar row
+ * ------------------------------------------------------------------------- */
+.vsb-controls-progress {
+    padding: 4px 8px 0 8px;
+}
+
+.vsb-progress-bar {
+    position: relative;
+    width: 100%;
+    height: 20px; /* large clickable area */
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+}
+
+/* The visible track. */
+.vsb-progress-track {
+    position: relative;
+    width: 100%;
+    height: 6px;
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+/* Buffered portion (lighter color, behind the played portion). */
+.vsb-progress-buffered {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 0%;
+    background-color: var(--vsb-controls-buffered);
+    border-radius: 3px;
+    transition: width 0.2s ease;
+}
+
+/* Played portion (accent color). */
+.vsb-progress-played {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 0%;
+    background-color: var(--vsb-controls-progress);
+    border-radius: 3px;
+    transition: width 0.1s linear;
+    z-index: 1;
+}
+
+/* Transparent input range overlaid to capture clicks and drags. */
+.vsb-progress-input {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    margin: 0;
+    z-index: 2;
+}
+
+/* -------------------------------------------------------------------------
+ * Control bar row (play, volume, time, speed, fullscreen)
+ * ------------------------------------------------------------------------- */
+.vsb-controls-bar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 8px 8px 8px;
+    min-height: 40px;
+}
+
+/* -------------------------------------------------------------------------
+ * Control buttons (shared)
+ * ------------------------------------------------------------------------- */
+.vsb-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 4px;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    color: var(--vsb-controls-text);
+    cursor: pointer;
+    flex-shrink: 0;
+    position: relative;
+    transition: background-color 0.15s ease;
+}
+
+.vsb-btn:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+.vsb-btn:focus-visible {
+    outline: 2px solid var(--vsb-controls-progress);
+    outline-offset: 2px;
+}
+
+.vsb-btn svg {
+    display: block;
+    width: 22px;
+    height: 22px;
+}
+
+/* Show/hide icons based on state. */
+.vsb-btn svg:first-child {
+    display: block;
+}
+
+.vsb-btn svg:nth-child(2),
+.vsb-btn svg:last-child:not(:first-child) {
+    display: none;
+}
+
+/* Playing state: show pause icon (second svg), hide play (first svg). */
+.vsb-btn-play.vsb-playing svg:first-child {
+    display: none;
+}
+
+.vsb-btn-play.vsb-playing svg:nth-child(2) {
+    display: block;
+}
+
+/* Muted state: show muted icon, hide volume icon. */
+.vsb-btn-volume.vsb-muted svg:first-child {
+    display: none;
+}
+
+.vsb-btn-volume.vsb-muted svg:nth-child(2) {
+    display: block;
+}
+
+/* Fullscreen active state. */
+.vsb-btn-fullscreen.vsb-fullscreen-active svg:first-child {
+    display: none;
+}
+
+.vsb-btn-fullscreen.vsb-fullscreen-active svg:nth-child(2) {
+    display: block;
+}
+
+/* -------------------------------------------------------------------------
+ * Volume slider
+ * ------------------------------------------------------------------------- */
+.vsb-volume-slider {
+    display: flex;
+    align-items: center;
+    width: 0;
+    overflow: hidden;
+    transition: width 0.2s ease, margin 0.2s ease;
+    margin: 0;
+}
+
+/* Show volume slider on hover of the volume button container area. */
+.vsb-btn-volume:hover + .vsb-volume-slider,
+.vsb-volume-slider:hover {
+    width: 80px;
+    margin: 0 4px;
+}
+
+.vsb-volume-input {
+    width: 80px;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+.vsb-volume-input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--vsb-controls-text);
+    cursor: pointer;
+    border: none;
+}
+
+.vsb-volume-input::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--vsb-controls-text);
+    cursor: pointer;
+    border: none;
+}
+
+/* -------------------------------------------------------------------------
+ * Time display
+ * ------------------------------------------------------------------------- */
+.vsb-time-display {
+    flex: 1;
+    margin: 0 8px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    min-width: 60px;
+    text-align: center;
+    color: var(--vsb-controls-text);
+    opacity: 0.9;
+}
+
+/* -------------------------------------------------------------------------
+ * Speed selector
+ * ------------------------------------------------------------------------- */
+.vsb-speed-wrap {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+}
+
+.vsb-btn-speed {
+    font-size: 13px;
+    font-weight: 600;
+    min-width: 36px;
+}
+
+/* Speed dropdown. */
+.vsb-speed-dropdown {
+    display: none;
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 4px;
+    background-color: var(--vsb-controls-bg);
+    border-radius: var(--vsb-controls-radius);
+    padding: 4px 0;
+    min-width: 60px;
+    z-index: 20;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.vsb-speed-dropdown.vsb-speed-dropdown-open {
+    display: block;
+}
+
+.vsb-speed-option {
+    padding: 6px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.15s ease;
+    color: var(--vsb-controls-text);
+}
+
+.vsb-speed-option:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+/* -------------------------------------------------------------------------
+ * Center play button overlay
+ * ------------------------------------------------------------------------- */
+.vsb-center-play {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 8;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.vsb-center-play.vsb-center-play-visible {
+    opacity: 1;
+}
+
+.vsb-center-play svg {
+    width: 56px;
+    height: 56px;
+    color: rgba(255, 255, 255, 0.9);
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+    pointer-events: auto;
+    cursor: pointer;
+    transition: transform 0.15s ease;
+}
+
+.vsb-center-play:hover svg {
+    transform: scale(1.1);
 }
 
 /* -------------------------------------------------------------------------
  * Error messages
  * ------------------------------------------------------------------------- */
 .vsb-error {
-	color: #cc0000;
-	font-size: 0.9rem;
-	padding: 1rem;
-	background: #fff5f5;
-	border: 1px solid #ffcccc;
-	border-radius: 4px;
+    color: #cc0000;
+    font-size: 0.9rem;
+    padding: 1rem;
+    background: #fff5f5;
+    border: 1px solid #ffcccc;
+    border-radius: 4px;
+}
+
+.vsb-error-text {
+    display: block;
+    color: #ff6666;
+    font-size: 12px;
+    padding: 4px 8px;
+    text-align: center;
+}
+
+.vsb-controls-error .vsb-time-display {
+    color: #ff6666;
 }
 
 /* -------------------------------------------------------------------------
  * Editor placeholder (Elementor edit mode)
  * ------------------------------------------------------------------------- */
 .vsb-editor-placeholder {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	min-height: 200px;
-	background: #f0f0f1;
-	border: 2px dashed #c3c4c7;
-	color: #646970;
-	font-size: 14px;
-	text-align: center;
-	padding: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    background: #f0f0f1;
+    border: 2px dashed #c3c4c7;
+    color: #646970;
+    font-size: 14px;
+    text-align: center;
+    padding: 1rem;
 }
 
 .vsb-editor-placeholder.vsb-error {
-	background: #fff5f5;
-	border-color: #ffcccc;
-	color: #cc0000;
+    background: #fff5f5;
+    border-color: #ffcccc;
+    color: #cc0000;
 }
 
 .vsb-editor-overlay {
-	position: absolute;
-	top: 0;
-	left: 0;
-	right: 0;
-	bottom: 0;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-	background: rgba(0, 0, 0, 0.7);
-	z-index: 10;
-	pointer-events: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 10;
+    pointer-events: none;
 }
 
 .vsb-editor-label {
-	color: #ffffff;
-	font-size: 18px;
-	font-weight: 600;
-	margin-bottom: 0.5rem;
+    color: #ffffff;
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
 }
 
 .vsb-editor-filename {
-	color: #cccccc;
-	font-size: 13px;
+    color: #cccccc;
+    font-size: 13px;
 }
 
 /* -------------------------------------------------------------------------
  * Responsive adjustments
  * ------------------------------------------------------------------------- */
 @media (max-width: 600px) {
-	.vsb-video-wrapper .vsb-buffer-bar {
-		height: 3px;
-	}
+    .vsb-video-wrapper:not(.vsb-custom-controls) .vsb-buffer-bar {
+        height: 3px;
+    }
+
+    /* Custom controls: slightly larger touch targets on mobile. */
+    .vsb-btn {
+        width: 40px;
+        height: 40px;
+    }
+
+    .vsb-btn svg {
+        width: 24px;
+        height: 24px;
+    }
+
+    .vsb-controls-bar {
+        padding: 6px 8px;
+        min-height: 44px;
+    }
+
+    .vsb-controls-progress {
+        padding: 6px 8px 0 8px;
+    }
+}
+
+/* On very small screens (< 500px), simplify controls. */
+@media (max-width: 499px) {
+    /* Hide volume slider and time display — save space. */
+    .vsb-volume-slider {
+        display: none !important;
+    }
+
+    .vsb-time-display {
+        font-size: 11px;
+        margin: 0 4px;
+    }
+}
+
+/* -------------------------------------------------------------------------
+ * Fullscreen adjustments
+ * ------------------------------------------------------------------------- */
+.vsb-video-wrapper:fullscreen {
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    height: 100vh;
+    padding-top: 0 !important;
+    background-color: #000;
+    border-radius: 0;
+}
+
+.vsb-video-wrapper:fullscreen video {
+    position: static;
+    flex: 1;
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+    min-height: 0;
+}
+
+.vsb-video-wrapper:fullscreen .vsb-center-play {
+    position: absolute;
+    height: auto;
+    padding-top: 0;
+    bottom: 0;
+}
+
+/* Vendor-prefixed fullscreen. */
+.vsb-video-wrapper:-webkit-full-screen {
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    height: 100vh;
+    padding-top: 0 !important;
+    background-color: #000;
+}
+
+.vsb-video-wrapper:-webkit-full-screen video {
+    position: static;
+    flex: 1;
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+    min-height: 0;
+}
+
+.vsb-video-wrapper:-webkit-full-screen .vsb-center-play {
+    position: absolute;
+    height: auto;
+    padding-top: 0;
+    bottom: 0;
+}
+
+.vsb-video-wrapper:-moz-full-screen {
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    height: 100vh;
+    padding-top: 0 !important;
+    background-color: #000;
+}
+
+.vsb-video-wrapper:-moz-full-screen video {
+    position: static;
+    flex: 1;
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+    min-height: 0;
+}
+
+.vsb-video-wrapper:-moz-full-screen .vsb-center-play {
+    position: absolute;
+    height: auto;
+    padding-top: 0;
+    bottom: 0;
+}
+
+.vsb-video-wrapper:-ms-fullscreen {
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    height: 100vh;
+    padding-top: 0 !important;
+    background-color: #000;
+}
+
+.vsb-video-wrapper:-ms-fullscreen video {
+    position: static;
+    flex: 1;
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+    min-height: 0;
+}
+
+.vsb-video-wrapper:-ms-fullscreen .vsb-center-play {
+    position: absolute;
+    height: auto;
+    padding-top: 0;
+    bottom: 0;
 }

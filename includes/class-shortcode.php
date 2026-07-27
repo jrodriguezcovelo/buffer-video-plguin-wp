@@ -28,15 +28,19 @@ class VSB_Shortcode {
 	 * Render the [video_stream] shortcode.
 	 *
 	 * Attributes:
-	 *   - id (int, required):   Attachment ID of the video.
-	 *   - autoplay (bool):       Autoplay the video. Forces muted for browser policy.
-	 *   - loop (bool):           Loop playback.
-	 *   - muted (bool):          Mute the video.
-	 *   - show_buffer (bool):    Show the buffer progress bar overlay. Default: true.
-	 *   - aspect_ratio (string): 16:9, 4:3, 1:1, or auto. Default: 16:9.
-	 *   - poster (int):          Attachment ID for poster image.
+	 *   - id (int, required):    Attachment ID of the video.
+	 *   - autoplay (bool):        Autoplay the video. Forces muted for browser policy.
+	 *   - loop (bool):            Loop playback.
+	 *   - muted (bool):           Mute the video.
+	 *   - show_buffer (bool):     Show the buffer progress bar. Default: true.
+	 *   - aspect_ratio (string):  16:9, 4:3, 1:1, or auto. Default: 16:9.
+	 *   - poster (int):           Attachment ID for poster image.
+	 *   - controls_style (string): 'native' (default) or 'custom'. Custom controls
+	 *                              provide a branded, consistent playback UI.
 	 *
 	 * @since  1.0.0
+	 * @since  1.1.0 Added controls_style attribute.
+	 *
 	 * @param  array  $atts    User-defined shortcode attributes.
 	 * @param  string $content Enclosed content (not used).
 	 * @return string          HTML output of the video player.
@@ -45,31 +49,38 @@ class VSB_Shortcode {
 		// Parse attributes with defaults.
 		$atts = shortcode_atts(
 			array(
-				'id'           => 0,
-				'autoplay'     => false,
-				'loop'         => false,
-				'muted'        => false,
-				'show_buffer'  => true,
-				'aspect_ratio' => '16:9',
-				'poster'       => 0,
+				'id'             => 0,
+				'autoplay'       => false,
+				'loop'           => false,
+				'muted'          => false,
+				'show_buffer'    => true,
+				'aspect_ratio'   => '16:9',
+				'poster'         => 0,
+				'controls_style' => 'native',
 			),
 			$atts,
 			'video_stream'
 		);
 
 		// Sanitize attributes.
-		$attachment_id = absint( $atts['id'] );
-		$autoplay      = filter_var( $atts['autoplay'], FILTER_VALIDATE_BOOLEAN );
-		$loop          = filter_var( $atts['loop'], FILTER_VALIDATE_BOOLEAN );
-		$muted         = filter_var( $atts['muted'], FILTER_VALIDATE_BOOLEAN );
-		$show_buffer   = filter_var( $atts['show_buffer'], FILTER_VALIDATE_BOOLEAN );
-		$poster_id     = absint( $atts['poster'] );
+		$attachment_id  = absint( $atts['id'] );
+		$autoplay       = filter_var( $atts['autoplay'], FILTER_VALIDATE_BOOLEAN );
+		$loop           = filter_var( $atts['loop'], FILTER_VALIDATE_BOOLEAN );
+		$muted          = filter_var( $atts['muted'], FILTER_VALIDATE_BOOLEAN );
+		$show_buffer    = filter_var( $atts['show_buffer'], FILTER_VALIDATE_BOOLEAN );
+		$poster_id      = absint( $atts['poster'] );
 
 		// Allowed aspect ratios.
 		$allowed_ratios = array( '16:9', '4:3', '1:1', 'auto' );
 		$aspect_ratio   = in_array( $atts['aspect_ratio'], $allowed_ratios, true )
 			? $atts['aspect_ratio']
 			: '16:9';
+
+		// Allowed controls styles: 'native' or 'custom'.
+		$allowed_controls = array( 'native', 'custom' );
+		$controls_style   = in_array( $atts['controls_style'], $allowed_controls, true )
+			? $atts['controls_style']
+			: 'native';
 
 		// Require a valid attachment ID.
 		if ( ! $attachment_id ) {
@@ -109,13 +120,20 @@ class VSB_Shortcode {
 			$poster_url = wp_get_attachment_url( $poster_id );
 		}
 
+		// Determine whether to use custom controls.
+		$use_custom_controls = ( 'custom' === $controls_style );
+
 		// Build attributes for the <video> element.
 		$video_attrs = array(
 			'src'         => esc_url( $stream_url ),
-			'controls'    => 'controls',
 			'playsinline' => 'playsinline',
 			'preload'     => 'metadata',
 		);
+
+		// Only add the native controls attribute when NOT using custom controls.
+		if ( ! $use_custom_controls ) {
+			$video_attrs['controls'] = 'controls';
+		}
 
 		if ( $autoplay ) {
 			$video_attrs['autoplay'] = 'autoplay';
@@ -141,13 +159,22 @@ class VSB_Shortcode {
 
 		// Build the wrapper with aspect ratio class.
 		$wrapper_class = 'vsb-video-wrapper vsb-aspect-' . sanitize_html_class( str_replace( ':', '-', $aspect_ratio ) );
+
+		// Add show-buffer class if buffer bar is enabled.
 		if ( $show_buffer ) {
 			$wrapper_class .= ' vsb-show-buffer';
 		}
 
-		// Buffer progress bar (only shown when show_buffer is true).
+		// When custom controls are active, add the custom-controls class
+		// so the JS knows to initialize the custom UI.
+		if ( $use_custom_controls ) {
+			$wrapper_class .= ' vsb-custom-controls';
+		}
+
+		// Buffer progress bar (only shown for native controls; custom controls
+		// embed the buffer visualization in the progress bar).
 		$buffer_bar = '';
-		if ( $show_buffer ) {
+		if ( $show_buffer && ! $use_custom_controls ) {
 			$buffer_bar = '<div class="vsb-buffer-bar"><div class="vsb-buffer-bar-fill"></div></div>';
 		}
 
@@ -175,7 +202,7 @@ class VSB_Shortcode {
 			VSB_VERSION
 		);
 
-		// JS: buffer progress bar visualization.
+		// JS: custom controls and buffer progress bar visualization.
 		wp_enqueue_script(
 			'vsb-video-stream',
 			VSB_PLUGIN_URL . 'assets/js/video-stream.js',

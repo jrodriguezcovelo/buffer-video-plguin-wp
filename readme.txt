@@ -1,14 +1,14 @@
 === Video Stream Buffer ===
 Contributors: videostreambuffer
-Tags: video, streaming, elementor, html5 video, range requests, media library, buffer
+Tags: video, streaming, elementor, html5 video, range requests, media library, buffer, custom controls
 Requires at least: 7.0.2
 Tested up to: 7.0.2
 Requires PHP: 8.3.32
-Stable tag: 1.0.3
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Delivers real video streaming via HTTP Range Requests from the WordPress Media Library, with a native Elementor widget and shortcode support.
+Delivers real video streaming via HTTP Range Requests from the WordPress Media Library, with a native Elementor widget, shortcode support, and custom video controls.
 
 == Description ==
 
@@ -17,6 +17,7 @@ Video Stream Buffer enables true video streaming from your WordPress Media Libra
 **Key features:**
 
 - **True HTTP Range Request streaming** (HTTP 206 Partial Content) — no full-file loading
+- **Custom video controls** — branded, consistent playback UI with play/pause, seek bar, volume, speed, and fullscreen (new in 1.1.0)
 - **Native Elementor widget** with full visual controls — drop a video into any page with the visual editor
 - **Shortcode support**: `[video_stream id="123"]` for non-Elementor pages
 - **Streaming from the Media Library** — uses `wp-content/uploads` directly, no external services
@@ -24,6 +25,8 @@ Video Stream Buffer enables true video streaming from your WordPress Media Libra
 - **Configurable chunk size** — balance memory usage vs. I/O performance
 - **Optional login-only access** — restrict streaming to authenticated users
 - **Path traversal protection** — strict file path validation prevents directory traversal attacks
+- **Keyboard shortcuts** — Space, arrows, F, M for complete keyboard control
+- **Responsive design** — mobile-optimized controls with larger touch targets
 
 **Requirements:**
 
@@ -72,10 +75,13 @@ Visit any page containing the shortcode or Elementor widget. Open the browser's 
 - `show_buffer` — `true` or `false` (default: true)
 - `aspect_ratio` — `16:9`, `4:3`, `1:1`, or `auto` (default: 16:9)
 - `poster` — attachment ID for poster image
+- `controls_style` — `native` or `custom` (default: `native`; **new in 1.1.0**)
 
 **Examples:**
 
-Full-featured video: `[video_stream id="123" autoplay="true" loop="true" aspect_ratio="4:3" poster="456"]`
+Full-featured video with custom controls: `[video_stream id="123" controls_style="custom" aspect_ratio="4:3" poster="456"]`
+
+Native browser controls: `[video_stream id="123" controls_style="native"]`
 
 Minimal: `[video_stream id="123"]`
 
@@ -89,12 +95,54 @@ The "Video Stream Buffer" widget appears in the Elementor panel under the "Video
 - Buffer bar visibility toggle
 - Aspect ratio selector (16:9, 4:3, 1:1, auto)
 - Poster image picker
+- **Controls Style** selector — "Custom Controls" (default) or "Native Browser" (new in 1.1.0)
 
-**Style controls:**
+**Style controls — Buffer Bar:**
 - Buffer bar color
 - Progress bar background color
 - Player background color
 - Border radius
+
+**Style controls — Custom Controls** (new in 1.1.0):
+- Controls background color
+- Progress bar color (played portion)
+- Buffered bar color (buffered portion on seek bar)
+- Text / icon color
+- Controls border radius
+
+== Custom Controls Features (1.1.0+) ==
+
+When Controls Style is set to "Custom Controls", the plugin replaces native browser controls with a branded control bar:
+
+- **Play/Pause** — button in control bar + center overlay when paused
+- **Progress Bar** — clickable and draggable seek bar with played (accent color) and buffered (lighter color) portions
+- **Time Display** — current time / total duration
+- **Volume** — mute toggle button + horizontal slider
+- **Fullscreen** — toggle fullscreen mode
+- **Playback Speed** — selector with 0.5x, 0.75x, 1x, 1.25x, 1.5x, 2x options
+
+**Keyboard Shortcuts:**
+- Space — play/pause
+- Left/Right arrows — skip 5 seconds
+- Up/Down arrows — volume up/down
+- F — toggle fullscreen
+- M — mute/unmute
+
+**Behavior:**
+- Controls auto-hide after 3 seconds of cursor inactivity (desktop only)
+- Controls stay visible when the video is paused
+- On mobile, controls are always visible with larger touch targets
+- Center play button appears briefly when paused
+
+== Custom Controls Theming ==
+
+Custom controls use CSS custom properties that can be styled via the Elementor widget settings or overridden in your theme:
+
+- `--vsb-controls-bg` — controls bar background (default: `rgba(0, 0, 0, 0.8)`)
+- `--vsb-controls-progress` — played portion of progress bar (default: `#00aaff`)
+- `--vsb-controls-buffered` — buffered portion on seek bar (default: `rgba(255, 255, 255, 0.25)`)
+- `--vsb-controls-text` — text and icon color (default: `#ffffff`)
+- `--vsb-controls-radius` — controls border radius (default: `6px`)
 
 == Known Limitations ==
 
@@ -122,7 +170,31 @@ MP4 (H.264), WebM, and Ogg. MP4 has the broadest browser support and is recommen
 
 The plugin implements multiple security measures: path traversal prevention via realpath validation, MIME type allowlisting, nonce protection on admin forms, and proper data sanitization/escaping throughout. The optional login-only restriction adds an additional access layer.
 
+= Are custom controls accessible? =
+
+Yes. All buttons have `aria-label` attributes, the video element is keyboard-focusable, and keyboard shortcuts provide full control without a mouse. The progress bar uses a native range input for accessibility.
+
 == Changelog ==
+
+= 1.1.0 =
+* Added: Custom video controls UI replacing native browser controls
+* Added: Play/Pause button with center overlay on pause
+* Added: Clickable/draggable progress bar with played and buffered portions
+* Added: Time display (current time / duration)
+* Added: Volume button with mute toggle and horizontal slider
+* Added: Fullscreen toggle button
+* Added: Playback speed selector (0.5x to 2x)
+* Added: Keyboard shortcuts (Space, arrows, F, M, Up/Down)
+* Added: Auto-hide behavior (3s inactivity, stays visible when paused)
+* Added: Mobile-responsive layout with larger touch targets
+* Added: `controls_style` shortcode attribute (`native` or `custom`)
+* Added: Controls Style selector in Elementor widget (defaults to Custom Controls)
+* Added: Custom Controls style tab in Elementor with 5 color/radius controls
+* Added: CSS custom properties for easy theming (--vsb-controls-bg, --vsb-controls-progress, etc.)
+* Improved: Aspect ratio "auto" now works naturally — video renders at native size, controls below
+* Improved: Fullscreen mode properly sizes video and maintains controls
+* All icons are inline SVG — no icon font dependencies
+* Backward compatible: omitting `controls_style` defaults to native controls
 
 = 1.0.3 =
 * Fixed: Elementor widget not appearing in the editor
@@ -150,6 +222,9 @@ The plugin implements multiple security measures: path traversal prevention via 
 * Path traversal protection and MIME type validation
 
 == Upgrade Notice ==
+
+= 1.1.0 =
+New: Custom video controls with progress bar, volume slider, speed selector, and fullscreen. The Elementor widget now defaults to Custom Controls — existing widgets will update automatically. Shortcodes remain on native controls by default for backward compatibility; add `controls_style="custom"` to opt in.
 
 = 1.0.0 =
 Initial release. No upgrade steps required.

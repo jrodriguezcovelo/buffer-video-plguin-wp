@@ -11,7 +11,7 @@
  * Plugin Name:       Video Stream Buffer
  * Plugin URI:        https://example.com/video-stream-buffer
  * Description:       Delivers real video streaming via HTTP Range Requests from the WordPress Media Library, with a native Elementor widget and shortcode support.
- * Version:           1.0.3
+ * Version:           1.1.0
  * Requires at least: 7.0.2
  * Requires PHP:      8.3.32
  * Author:            Video Stream Buffer Team
@@ -27,7 +27,7 @@ defined( 'ABSPATH' ) || exit;
 /**
  * Plugin constants.
  */
-define( 'VSB_VERSION', '1.0.3' );
+define( 'VSB_VERSION', '1.1.0' );
 define( 'VSB_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VSB_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 

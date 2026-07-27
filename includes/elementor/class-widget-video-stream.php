@@ -125,6 +125,7 @@ class VSB_Widget_Video_Stream extends \Elementor\Widget_Base {
 	 * Register widget controls (Content + Style tabs).
 	 *
 	 * @since 1.0.0
+	 * @since 1.1.0 Added controls_style selector and Custom Controls style section.
 	 */
 	protected function register_controls() {
 
@@ -200,7 +201,7 @@ class VSB_Widget_Video_Stream extends \Elementor\Widget_Base {
 				'label_off'    => __( 'No', 'video-stream-buffer' ),
 				'return_value' => 'yes',
 				'default'      => 'yes',
-				'description'  => __( 'Display a visual buffer progress indicator below the video.', 'video-stream-buffer' ),
+				'description'  => __( 'Display a visual buffer progress indicator. When using Custom Controls, the buffer is shown on the seek bar.', 'video-stream-buffer' ),
 			)
 		);
 
@@ -231,10 +232,25 @@ class VSB_Widget_Video_Stream extends \Elementor\Widget_Base {
 			)
 		);
 
+		// Controls style selector (new in 1.1.0).
+		$this->add_control(
+			'controls_style',
+			array(
+				'label'       => __( 'Controls Style', 'video-stream-buffer' ),
+				'type'        => \Elementor\Controls_Manager::SELECT,
+				'default'     => 'custom',
+				'options'     => array(
+					'custom' => __( 'Custom Controls', 'video-stream-buffer' ),
+					'native' => __( 'Native Browser', 'video-stream-buffer' ),
+				),
+				'description' => __( 'Custom Controls provide a branded, consistent playback experience with seek bar, volume slider, speed selector, and fullscreen. Native uses the browser defaults.', 'video-stream-buffer' ),
+			)
+		);
+
 		$this->end_controls_section();
 
 		// =====================================================================
-		// STYLE TAB — Buffer Bar Styles
+		// STYLE TAB — Buffer Bar Styles (legacy, for native controls)
 		// =====================================================================
 		$this->start_controls_section(
 			'vsb_style_section',
@@ -308,6 +324,80 @@ class VSB_Widget_Video_Stream extends \Elementor\Widget_Base {
 		);
 
 		$this->end_controls_section();
+
+		// =====================================================================
+		// STYLE TAB — Custom Controls Styles (new in 1.1.0)
+		// =====================================================================
+		$this->start_controls_section(
+			'vsb_custom_controls_style',
+			array(
+				'label' => __( 'Custom Controls', 'video-stream-buffer' ),
+				'tab'   => \Elementor\Controls_Manager::TAB_STYLE,
+			)
+		);
+
+		// Controls background color.
+		$this->add_control(
+			'custom_controls_bg',
+			array(
+				'label'   => __( 'Controls Background', 'video-stream-buffer' ),
+				'type'    => \Elementor\Controls_Manager::COLOR,
+				'default' => 'rgba(0, 0, 0, 0.8)',
+			)
+		);
+
+		// Progress bar (played) color.
+		$this->add_control(
+			'custom_progress_color',
+			array(
+				'label'   => __( 'Progress Bar Color', 'video-stream-buffer' ),
+				'type'    => \Elementor\Controls_Manager::COLOR,
+				'default' => '#00aaff',
+			)
+		);
+
+		// Buffer bar color (buffered portion on seek bar).
+		$this->add_control(
+			'custom_buffered_color',
+			array(
+				'label'   => __( 'Buffered Bar Color', 'video-stream-buffer' ),
+				'type'    => \Elementor\Controls_Manager::COLOR,
+				'default' => 'rgba(255, 255, 255, 0.25)',
+			)
+		);
+
+		// Text/icon color.
+		$this->add_control(
+			'custom_text_color',
+			array(
+				'label'   => __( 'Text / Icon Color', 'video-stream-buffer' ),
+				'type'    => \Elementor\Controls_Manager::COLOR,
+				'default' => '#ffffff',
+			)
+		);
+
+		// Controls border radius.
+		$this->add_control(
+			'custom_controls_radius',
+			array(
+				'label'      => __( 'Controls Border Radius', 'video-stream-buffer' ),
+				'type'       => \Elementor\Controls_Manager::SLIDER,
+				'size_units' => array( 'px' ),
+				'range'      => array(
+					'px' => array(
+						'min'  => 0,
+						'max'  => 20,
+						'step' => 1,
+					),
+				),
+				'default'    => array(
+					'unit' => 'px',
+					'size' => 6,
+				),
+			)
+		);
+
+		$this->end_controls_section();
 	}
 
 	// -------------------------------------------------------------------------
@@ -321,6 +411,7 @@ class VSB_Widget_Video_Stream extends \Elementor\Widget_Base {
 	 * Validation is done via VSB_Video_Helper.
 	 *
 	 * @since 1.0.0
+	 * @since 1.1.0 Added custom controls support with CSS custom properties.
 	 */
 	protected function render() {
 		$settings = $this->get_settings_for_display();
@@ -351,11 +442,13 @@ class VSB_Widget_Video_Stream extends \Elementor\Widget_Base {
 		}
 
 		// Read settings with defaults.
-		$autoplay    = 'yes' === $settings['autoplay'];
-		$loop        = 'yes' === $settings['loop'];
-		$muted       = 'yes' === $settings['muted'];
-		$show_buffer = 'yes' === $settings['show_buffer'];
-		$aspect      = isset( $settings['aspect_ratio'] ) ? $settings['aspect_ratio'] : '16:9';
+		$autoplay       = 'yes' === $settings['autoplay'];
+		$loop           = 'yes' === $settings['loop'];
+		$muted          = 'yes' === $settings['muted'];
+		$show_buffer    = 'yes' === $settings['show_buffer'];
+		$aspect         = isset( $settings['aspect_ratio'] ) ? $settings['aspect_ratio'] : '16:9';
+		$controls_style = isset( $settings['controls_style'] ) ? $settings['controls_style'] : 'custom';
+		$use_custom     = ( 'custom' === $controls_style );
 
 		// -----------------------------------------------------------------
 		// Browser autoplay policy: browsers block autoplay of audible
@@ -377,10 +470,14 @@ class VSB_Widget_Video_Stream extends \Elementor\Widget_Base {
 		// Build video element attributes.
 		$video_attrs = array(
 			'src'         => esc_url( $stream_url ),
-			'controls'    => 'controls',
 			'playsinline' => 'playsinline',
 			'preload'     => 'metadata',
 		);
+
+		// Only add native controls attribute when NOT using custom controls.
+		if ( ! $use_custom ) {
+			$video_attrs['controls'] = 'controls';
+		}
 
 		if ( $autoplay ) {
 			$video_attrs['autoplay'] = 'autoplay';
@@ -409,17 +506,48 @@ class VSB_Widget_Video_Stream extends \Elementor\Widget_Base {
 		if ( $show_buffer ) {
 			$wrapper_class .= ' vsb-show-buffer';
 		}
+		if ( $use_custom ) {
+			$wrapper_class .= ' vsb-custom-controls';
+		}
 
-		// Buffer progress bar overlay.
+		// Build inline style for CSS custom properties (custom controls theming).
+		$inline_style = '';
+		if ( $use_custom ) {
+			$custom_props = array();
+
+			if ( ! empty( $settings['custom_controls_bg'] ) ) {
+				$custom_props[] = '--vsb-controls-bg: ' . esc_attr( $settings['custom_controls_bg'] );
+			}
+			if ( ! empty( $settings['custom_progress_color'] ) ) {
+				$custom_props[] = '--vsb-controls-progress: ' . esc_attr( $settings['custom_progress_color'] );
+			}
+			if ( ! empty( $settings['custom_buffered_color'] ) ) {
+				$custom_props[] = '--vsb-controls-buffered: ' . esc_attr( $settings['custom_buffered_color'] );
+			}
+			if ( ! empty( $settings['custom_text_color'] ) ) {
+				$custom_props[] = '--vsb-controls-text: ' . esc_attr( $settings['custom_text_color'] );
+			}
+			if ( ! empty( $settings['custom_controls_radius']['size'] ) ) {
+				$custom_props[] = '--vsb-controls-radius: ' . esc_attr( $settings['custom_controls_radius']['size'] ) . esc_attr( $settings['custom_controls_radius']['unit'] );
+			}
+
+			if ( ! empty( $custom_props ) ) {
+				$inline_style = ' style="' . implode( '; ', $custom_props ) . '"';
+			}
+		}
+
+		// Buffer progress bar overlay (only for native controls).
 		$buffer_bar = '';
-		if ( $show_buffer ) {
+		if ( $show_buffer && ! $use_custom ) {
 			$buffer_bar = '<div class="vsb-buffer-bar"><div class="vsb-buffer-bar-fill"></div></div>';
 		}
 
 		// In edit mode, show a placeholder overlay so the widget is visible in
 		// the Elementor editor.
 		if ( $this->is_edit_mode() ) {
-			echo '<div class="' . esc_attr( $wrapper_class ) . '">';
+			$edit_wrapper_class = $wrapper_class;
+			// In edit mode with custom controls, still show the overlay for visibility.
+			echo '<div class="' . esc_attr( $edit_wrapper_class ) . '"' . $inline_style . '>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $inline_style is escaped above.
 			echo '<div class="vsb-editor-overlay">'
 				. '<span class="vsb-editor-label">' . esc_html__( 'Video Stream Buffer', 'video-stream-buffer' ) . '</span>'
 				. '<span class="vsb-editor-filename">' . esc_html( basename( $video['path'] ) ) . '</span>'
@@ -432,10 +560,11 @@ class VSB_Widget_Video_Stream extends \Elementor\Widget_Base {
 
 		// Frontend output.
 		printf(
-			'<div class="%s">%s<video%s></video></div>',
+			'<div class="%s"%s>%s<video%s></video></div>',
 			esc_attr( $wrapper_class ),
-			$buffer_bar, // Already escaped.
-			$attrs_string // Already escaped.
+			$inline_style, // Already escaped above.
+			$buffer_bar,   // Already escaped.
+			$attrs_string  // Already escaped.
 		);
 	}
 
