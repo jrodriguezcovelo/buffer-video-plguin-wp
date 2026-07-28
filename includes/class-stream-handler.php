@@ -6,6 +6,10 @@
  * WordPress Media Library. Supports HTTP 206 Partial Content responses for
  * proper browser video seeking and buffering.
  *
+ * As of v2.0.0, the endpoint also auto-detects HLS-compressed videos and
+ * can redirect to the HLS master playlist, or serve single-file streams
+ * for backward compatibility.
+ *
  * SECURITY / PERFORMANCE NOTES:
  *
  * - The endpoint calls VSB_Video_Helper::get_video_by_attachment_id() to
@@ -55,6 +59,14 @@ class VSB_Stream_Handler {
 						},
 						'sanitize_callback' => 'absint',
 					),
+					'format' => array(
+						'required'          => false,
+						'default'           => 'auto',
+						'enum'              => array( 'auto', 'hls', 'mp4' ),
+						'sanitize_callback' => function ( $param ) {
+							return in_array( $param, array( 'auto', 'hls', 'mp4' ), true ) ? $param : 'auto';
+						},
+					),
 				),
 			)
 		);
@@ -86,36 +98,57 @@ class VSB_Stream_Handler {
 	}
 
 	/**
-	 * Stream the video file with HTTP Range Request support.
+	 * Stream the video file — with HLS auto-detection (v2.0.0).
 	 *
 	 * This is the main handler. It:
 	 * 1. Validates the attachment via VSB_Video_Helper.
-	 * 2. Opens the file and reads it in chunks.
-	 * 3. Handles Range requests (HTTP 206) and full requests (HTTP 200).
-	 * 4. Calls exit() to prevent WordPress from adding extra output.
+	 * 2. Checks for HLS-compressed versions and format preference.
+	 * 3. If HLS is requested/available: redirects to the HLS master playlist.
+	 * 4. Otherwise: serves the single file via HTTP Range Requests (legacy).
 	 *
 	 * @since  1.0.0
+	 * @since  2.0.0 Added HLS auto-detection and `?format=` parameter.
+	 *
 	 * @param  WP_REST_Request $request The REST request.
 	 * @return WP_Error|void WP_Error on failure, or exits on success.
 	 */
 	public static function stream_video( $request ) {
 		$attachment_id = $request->get_param( 'attachment_id' );
+		$format        = $request->get_param( 'format' );
 
-		// -----------------------------------------------------------------
 		// Validate the video using the shared helper.
-		// -----------------------------------------------------------------
 		$video = VSB_Video_Helper::get_video_by_attachment_id( $attachment_id );
 		if ( is_wp_error( $video ) ) {
 			return $video;
 		}
 
+		// -----------------------------------------------------------------
+		// HLS auto-detection (v2.0.0).
+		//
+		// If the `format` parameter is 'hls', or if it's 'auto' and the
+		// video has been compressed, redirect to the HLS master playlist.
+		// Otherwise, serve the single file as before (backward compatible).
+		// -----------------------------------------------------------------
+		if ( class_exists( 'VSB_Compressor' ) ) {
+			$has_hls  = VSB_Compressor::is_compressed( $attachment_id );
+			$want_hls = ( 'hls' === $format ) || ( 'auto' === $format && $has_hls );
+
+			if ( $want_hls && $has_hls ) {
+				// Redirect to the HLS master playlist endpoint.
+				$hls_url = rest_url( 'video-stream/v1/hls/' . absint( $attachment_id ) . '/master.m3u8' );
+				wp_redirect( $hls_url, 302 );
+				exit;
+			}
+		}
+
+		// -----------------------------------------------------------------
+		// Fall through: serve single file (backward compatible).
+		// -----------------------------------------------------------------
 		$file_path = $video['path'];
 		$mime_type = $video['mime_type'];
 		$file_size = $video['size'];
 
-		// -----------------------------------------------------------------
 		// Open the file for binary reading.
-		// -----------------------------------------------------------------
 		$file_handle = fopen( $file_path, 'rb' );
 		if ( ! $file_handle ) {
 			return new WP_Error(
@@ -125,38 +158,18 @@ class VSB_Stream_Handler {
 			);
 		}
 
-		// -----------------------------------------------------------------
 		// Prevent PHP timeout during long transfers.
-		//
-		// Reason: Large video files can take minutes to stream over slow
-		// connections. Without this, PHP's max_execution_time would kill
-		// the process, resulting in a truncated file and a bad UX.
-		// This is safe because this callback runs in a controlled REST
-		// context and exits immediately after streaming.
-		// -----------------------------------------------------------------
 		set_time_limit( 0 );
 
-		// -----------------------------------------------------------------
 		// Generate ETag from file metadata.
-		// Using file size + mtime gives a unique, cacheable identifier.
-		// -----------------------------------------------------------------
 		$file_mtime = filemtime( $file_path );
 		$etag       = sprintf( '"%x-%x"', $file_size, $file_mtime );
 
-		// -----------------------------------------------------------------
 		// Read chunk size from settings (default: 256 KB).
-		//
-		// TRADEOFF: 256 KB is a reasonable default that balances:
-		//  - Too small (e.g., 8 KB): excessive fread() calls, higher CPU.
-		//  - Too large (e.g., 8 MB): blocks memory per concurrent request,
-		//    increasing risk of OOM under load.
-		// -----------------------------------------------------------------
 		$chunk_size_kb = absint( get_option( 'vsb_chunk_size_kb', 256 ) );
 		$chunk_size    = max( 8, min( $chunk_size_kb, 8192 ) ) * 1024; // Clamp 8KB–8MB.
 
-		// -----------------------------------------------------------------
 		// Handle HTTP Range requests.
-		// -----------------------------------------------------------------
 		if ( isset( $_SERVER['HTTP_RANGE'] ) ) {
 			$range_header = $_SERVER['HTTP_RANGE'];
 
@@ -167,7 +180,6 @@ class VSB_Stream_Handler {
 
 				// Sanity-check the range values.
 				if ( $range_start > $range_end || $range_start >= $file_size ) {
-					// Invalid range — serve 416 Range Not Satisfiable.
 					header( 'HTTP/1.1 416 Range Not Satisfiable' );
 					header( 'Content-Range: bytes */' . $file_size );
 					fclose( $file_handle );
@@ -205,7 +217,6 @@ class VSB_Stream_Handler {
 					echo $buffer; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — binary video data.
 					$bytes_remaining -= strlen( $buffer );
 
-					// Flush output to the browser for progressive delivery.
 					if ( ob_get_level() ) {
 						ob_flush();
 					}
@@ -221,7 +232,6 @@ class VSB_Stream_Handler {
 				header( 'ETag: ' . $etag );
 				header( 'X-Content-Type-Options: nosniff' );
 
-				// Stream entire file.
 				while ( ! feof( $file_handle ) ) {
 					$buffer = fread( $file_handle, $chunk_size );
 					if ( false === $buffer ) {
@@ -235,9 +245,7 @@ class VSB_Stream_Handler {
 				}
 			}
 		} else {
-			// -----------------------------------------------------------------
 			// No Range header — serve full file (HTTP 200).
-			// -----------------------------------------------------------------
 			header( 'HTTP/1.1 200 OK' );
 			header( 'Content-Type: ' . $mime_type );
 			header( 'Content-Length: ' . $file_size );
@@ -260,7 +268,6 @@ class VSB_Stream_Handler {
 			}
 		}
 
-		// Close the file handle and terminate.
 		fclose( $file_handle );
 		exit;
 	}

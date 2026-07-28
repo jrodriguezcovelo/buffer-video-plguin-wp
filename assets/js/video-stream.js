@@ -3,6 +3,8 @@
  *
  * - Custom video controls UI replacing native browser controls
  * - Buffer progress visualization integrated into the seek bar
+ * - HLS adaptive bitrate streaming via hls.js (v2.0.0+)
+ * - Quality selector for HLS videos (v2.0.0+)
  * - Keyboard shortcuts, auto-hide behavior, mobile responsiveness
  * - Vanilla JS — no jQuery dependency.
  *
@@ -53,7 +55,8 @@
         volumeMuted: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>',
         fullscreen: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>',
         fullscreenExit: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>',
-        centerPlay: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" fill="currentColor"><path d="M16 10v28l22-14z"/></svg>'
+        centerPlay: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" fill="currentColor"><path d="M16 10v28l22-14z"/></svg>',
+        quality: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM8 15h1.5v-3h2.25l-.9 2.18L12 15l1.5-4H8zm4.5-6H11v1.5h1.5zM13 10.5h1.5V12H13zm0 3h1.5v1.5H13z"/></svg>'
     };
 
     // -------------------------------------------------------------------------
@@ -64,9 +67,10 @@
      * @constructor
      * @param {HTMLVideoElement} video   The video element.
      * @param {HTMLElement}     wrapper The .vsb-video-wrapper container.
-     * @param {boolean}         showBuffer Whether to show the buffered portion in the progress bar.
+     * @param {boolean}         showBuffer Whether to show the buffered portion.
+     * @param {object}          hlsOptions HLS-related options (v2.0.0+).
      */
-    function VSBCustomControls(video, wrapper, showBuffer) {
+    function VSBCustomControls(video, wrapper, showBuffer, hlsOptions) {
         this.video = video;
         this.wrapper = wrapper;
         this.showBuffer = (showBuffer !== false);
@@ -75,13 +79,157 @@
         this.isMobile = false;
         this.speedOptions = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
+        // HLS support (v2.0.0+).
+        this.hls = null;
+        this.hlsOptions = hlsOptions || {};
+        this.hasHLS = !!this.hlsOptions.hlsUrl;
+        this.availableQualities = [];
+        this.currentQuality = -1;   // -1 = Auto
+        this.preferredQuality = this.hlsOptions.preferredQuality || 'auto';
+
+        // Parse available resolutions from the video data attribute.
+        if (this.hasHLS && video.getAttribute('data-vsb-resolutions')) {
+            this.availableQualities = video.getAttribute('data-vsb-resolutions').split(',');
+        }
+
         // Detect touch support for mobile behavior.
         this.isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
         this.buildDOM();
         this.bindEvents();
+
+        if (this.hasHLS) {
+            this.initHLS();
+        }
+
         this.updateAll();
     }
+
+    /**
+     * Initialize hls.js for adaptive bitrate streaming.
+     */
+    VSBCustomControls.prototype.initHLS = function () {
+        var self = this;
+
+        // hls.js must be loaded. Check if Hls is available.
+        if (typeof Hls === 'undefined') {
+            // hls.js not loaded — fall back to native <video> with src.
+            console.warn('[Video Stream Buffer] hls.js not loaded. Falling back to native video.');
+            this.hasHLS = false;
+            return;
+        }
+
+        if (!Hls.isSupported()) {
+            // Browser has native HLS support (e.g., Safari). The video src
+            // can be set to the .m3u8 directly, and the browser handles it.
+            // However, we still want our custom controls + quality selector,
+            // so we still mark HLS as available but let the browser handle it.
+            console.log('[Video Stream Buffer] Native HLS support detected. Using browser HLS.');
+            // Set the src to the HLS URL if the browser supports it natively.
+            this.video.src = this.hlsOptions.hlsUrl;
+            return;
+        }
+
+        // Initialize hls.js.
+        try {
+            var hls = new Hls({
+                debug: false,
+                enableWorker: true,
+                lowLatencyMode: false,
+                backBufferLength: 90
+            });
+
+            hls.loadSource(this.hlsOptions.hlsUrl);
+            hls.attachMedia(this.video);
+
+            // Listen for manifest parsed to get quality levels.
+            hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                self.onHLSManifestParsed(hls);
+            });
+
+            // Listen for level changes to update the quality selector.
+            hls.on(Hls.Events.LEVEL_SWITCHED, function (event, data) {
+                self.onHLSLevelSwitched(data.level);
+            });
+
+            this.hls = hls;
+        } catch (e) {
+            console.error('[Video Stream Buffer] Failed to initialize hls.js:', e);
+            this.hasHLS = false;
+        }
+    };
+
+    /**
+     * Called when hls.js parses the manifest.
+     * Reads available quality levels and sets initial quality.
+     *
+     * @param {Hls} hls The hls.js instance.
+     */
+    VSBCustomControls.prototype.onHLSManifestParsed = function (hls) {
+        var self = this;
+        var levels = hls.levels;
+        var autoLevel = hls.autoLevelEnabled;
+
+        // Build available qualities from hls.js levels.
+        // Each level has a height; map heights to our quality labels.
+        this.availableQualities = [];
+        for (var i = 0; i < levels.length; i++) {
+            var label = self.heightToLabel(levels[i].height);
+            if (label && this.availableQualities.indexOf(label) === -1) {
+                this.availableQualities.push(label);
+            }
+        }
+
+        // Sort qualities: 360p, 480p, 720p, 1080p
+        var order = { '360p': 1, '480p': 2, '720p': 3, '1080p': 4 };
+        this.availableQualities.sort(function (a, b) {
+            return (order[a] || 0) - (order[b] || 0);
+        });
+
+        // Set preferred quality.
+        if (this.preferredQuality !== 'auto') {
+            // Find the level matching preferred quality.
+            var targetLabel = this.preferredQuality;
+            for (var j = 0; j < levels.length; j++) {
+                if (self.heightToLabel(levels[j].height) === targetLabel) {
+                    hls.currentLevel = j;
+                    hls.autoLevelEnabled = false;
+                    this.currentQuality = j;
+                    break;
+                }
+            }
+        }
+
+        // Rebuild quality dropdown with actual levels.
+        this.buildQualityOptions();
+
+        // Update the quality button label.
+        this.updateQualityLabel();
+    };
+
+    /**
+     * Convert a video height to a quality label.
+     *
+     * @param {number} height
+     * @return {string|null}
+     */
+    VSBCustomControls.prototype.heightToLabel = function (height) {
+        if (height >= 1080) return '1080p';
+        if (height >= 720) return '720p';
+        if (height >= 480) return '480p';
+        if (height >= 360) return '360p';
+        return null;
+    };
+
+    /**
+     * Called when hls.js switches quality level.
+     *
+     * @param {number} newLevel
+     */
+    VSBCustomControls.prototype.onHLSLevelSwitched = function (newLevel) {
+        this.currentQuality = newLevel;
+        this.updateQualityLabel();
+    };
 
     /**
      * Build the controls DOM and inject it into the wrapper.
@@ -118,21 +266,17 @@
         var progressBar = document.createElement('div');
         progressBar.className = 'vsb-progress-bar';
 
-        // Track background.
         var progressTrack = document.createElement('div');
         progressTrack.className = 'vsb-progress-track';
 
-        // Buffered portion.
         var progressBuffered = document.createElement('div');
         progressBuffered.className = 'vsb-progress-buffered';
         this.progressBuffered = progressBuffered;
 
-        // Played portion.
         var progressPlayed = document.createElement('div');
         progressPlayed.className = 'vsb-progress-played';
         this.progressPlayed = progressPlayed;
 
-        // Transparent input range for click/drag seeking.
         var progressInput = document.createElement('input');
         progressInput.type = 'range';
         progressInput.className = 'vsb-progress-input';
@@ -158,7 +302,7 @@
         var btnPlay = document.createElement('button');
         btnPlay.className = 'vsb-btn vsb-btn-play';
         btnPlay.setAttribute('aria-label', 'Play');
-        btnPlay.innerHTML = ICONS.play + ICONS.pause; // both, CSS shows one
+        btnPlay.innerHTML = ICONS.play + ICONS.pause;
         this.btnPlay = btnPlay;
         btnPlay.addEventListener('click', function (e) {
             e.preventDefault();
@@ -196,18 +340,45 @@
         timeDisplay.textContent = '0:00 / 0:00';
         this.timeDisplay = timeDisplay;
 
+        // Quality selector (v2.0.0+).
+        var qualityWrap = document.createElement('span');
+        qualityWrap.className = 'vsb-quality-wrap';
+
+        var btnQuality = document.createElement('button');
+        btnQuality.className = 'vsb-btn vsb-btn-quality';
+        btnQuality.setAttribute('aria-label', 'Quality');
+        btnQuality.innerHTML = ICONS.quality;
+        btnQuality.title = 'Video Quality (Q)';
+        this.btnQuality = btnQuality;
+
+        var qualityDropdown = document.createElement('div');
+        qualityDropdown.className = 'vsb-quality-dropdown';
+        this.qualityDropdown = qualityDropdown;
+        this.buildQualityOptions();
+        btnQuality.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            self.toggleQualityDropdown();
+        });
+
+        qualityWrap.appendChild(btnQuality);
+        qualityWrap.appendChild(qualityDropdown);
+
+        // Show quality selector only if HLS is available.
+        if (!this.hasHLS) {
+            qualityWrap.style.display = 'none';
+        }
+
         // Speed button + dropdown wrapper.
         var speedWrap = document.createElement('span');
         speedWrap.className = 'vsb-speed-wrap';
 
-        // Speed button.
         var btnSpeed = document.createElement('button');
         btnSpeed.className = 'vsb-btn vsb-btn-speed';
         btnSpeed.setAttribute('aria-label', 'Playback speed');
         btnSpeed.textContent = '1x';
         this.btnSpeed = btnSpeed;
 
-        // Speed dropdown.
         var speedDropdown = document.createElement('div');
         speedDropdown.className = 'vsb-speed-dropdown';
         this.speedDropdown = speedDropdown;
@@ -237,6 +408,7 @@
         barRow.appendChild(btnVolume);
         barRow.appendChild(volumeSlider);
         barRow.appendChild(timeDisplay);
+        barRow.appendChild(qualityWrap);
         barRow.appendChild(speedWrap);
         barRow.appendChild(btnFullscreen);
         controls.appendChild(barRow);
@@ -247,6 +419,131 @@
         this.controls = controls;
         this.progressBar = progressBar;
         this.volumeSlider = volumeSlider;
+        this.qualityWrap = qualityWrap;
+    };
+
+    /**
+     * Build the quality selector dropdown options.
+     */
+    VSBCustomControls.prototype.buildQualityOptions = function () {
+        var self = this;
+        var dropdown = this.qualityDropdown;
+        if (!dropdown) return;
+
+        dropdown.innerHTML = '';
+
+        // Auto option.
+        var autoOpt = document.createElement('div');
+        autoOpt.className = 'vsb-quality-option';
+        autoOpt.textContent = 'Auto';
+        autoOpt.setAttribute('data-quality', '-1');
+        autoOpt.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            self.setQuality(-1);
+            self.qualityDropdown.classList.remove('vsb-quality-dropdown-open');
+        });
+        dropdown.appendChild(autoOpt);
+
+        // Resolution options.
+        for (var i = 0; i < this.availableQualities.length; i++) {
+            (function (quality, index) {
+                var opt = document.createElement('div');
+                opt.className = 'vsb-quality-option';
+                opt.textContent = quality;
+                opt.setAttribute('data-quality', index);
+                opt.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    self.setQuality(index);
+                    self.qualityDropdown.classList.remove('vsb-quality-dropdown-open');
+                });
+                dropdown.appendChild(opt);
+            })(this.availableQualities[i], i);
+        }
+    };
+
+    /**
+     * Set the streaming quality.
+     *
+     * @param {number} qualityIndex -1 for Auto, or level index.
+     */
+    VSBCustomControls.prototype.setQuality = function (qualityIndex) {
+        if (!this.hls) {
+            // Native HLS — can't change quality programmatically.
+            return;
+        }
+
+        if (qualityIndex === -1) {
+            this.hls.autoLevelEnabled = true;
+            this.currentQuality = -1;
+        } else {
+            this.hls.currentLevel = qualityIndex;
+            this.hls.autoLevelEnabled = false;
+            this.currentQuality = qualityIndex;
+        }
+
+        this.updateQualityLabel();
+    };
+
+    /**
+     * Update the quality button label.
+     */
+    VSBCustomControls.prototype.updateQualityLabel = function () {
+        if (!this.btnQuality) return;
+
+        if (this.currentQuality === -1 || !this.hls) {
+            // Auto — show the current auto-detected quality.
+            var autoLabel = 'Auto';
+            if (this.hls && this.hls.levels && this.hls.autoLevelEnabled) {
+                var currentLevel = this.hls.currentLevel;
+                if (currentLevel >= 0 && currentLevel < this.hls.levels.length) {
+                    var h = this.hls.levels[currentLevel].height;
+                    autoLabel = 'Auto (' + (this.heightToLabel(h) || h + 'p') + ')';
+                }
+            }
+            this.btnQuality.textContent = autoLabel;
+        } else if (this.hls && this.hls.levels) {
+            var level = this.hls.levels[this.currentQuality];
+            if (level) {
+                this.btnQuality.textContent = this.heightToLabel(level.height) || level.height + 'p';
+            } else {
+                this.btnQuality.textContent = this.availableQualities[this.currentQuality] || '?';
+            }
+        }
+    };
+
+    /**
+     * Toggle the quality dropdown.
+     */
+    VSBCustomControls.prototype.toggleQualityDropdown = function () {
+        // Close speed dropdown first.
+        if (this.speedDropdown) {
+            this.speedDropdown.classList.remove('vsb-speed-dropdown-open');
+        }
+        if (this.qualityDropdown) {
+            this.qualityDropdown.classList.toggle('vsb-quality-dropdown-open');
+        }
+    };
+
+    /**
+     * Cycle to the next quality level (keyboard shortcut 'Q').
+     */
+    VSBCustomControls.prototype.cycleQuality = function () {
+        if (!this.hasHLS) return;
+
+        var maxIndex = this.availableQualities.length - 1;
+        if (this.currentQuality === -2) {
+            // Not yet initialized.
+            this.currentQuality = -1;
+        }
+
+        if (this.currentQuality >= maxIndex) {
+            // Cycle back to Auto.
+            this.setQuality(-1);
+        } else {
+            this.setQuality(this.currentQuality + 1);
+        }
     };
 
     /**
@@ -256,7 +553,6 @@
      */
     VSBCustomControls.prototype.buildSpeedOptions = function (dropdown) {
         var self = this;
-        // Clear existing.
         dropdown.innerHTML = '';
 
         for (var i = 0; i < this.speedOptions.length; i++) {
@@ -298,7 +594,6 @@
         // Seeking via progress input.
         this.progressInput.addEventListener('input', function () { self.onSeekInput(); });
         this.progressInput.addEventListener('change', function () { self.onSeekChange(); });
-        // Also handle mousedown/mouseup for drag tracking.
         this.progressInput.addEventListener('mousedown', function () { self.isDragging = true; });
         this.progressInput.addEventListener('mouseup', function () { self.isDragging = false; self.onSeekChange(); });
         this.progressInput.addEventListener('touchstart', function () { self.isDragging = true; });
@@ -332,28 +627,32 @@
 
         // Keyboard shortcuts.
         this.video.addEventListener('keydown', function (e) { self.onKeyDown(e); });
-        // Make video element focusable for keyboard events.
         if (!this.video.hasAttribute('tabindex')) {
             this.video.setAttribute('tabindex', '0');
             this.video.style.outline = 'none';
         }
 
-        // Close speed dropdown on outside click.
+        // Close dropdowns on outside click.
         document.addEventListener('click', function (e) {
-            if (self.speedDropdown.classList.contains('vsb-speed-dropdown-open')) {
+            if (self.speedDropdown && self.speedDropdown.classList.contains('vsb-speed-dropdown-open')) {
                 if (!self.btnSpeed.contains(e.target) && !self.speedDropdown.contains(e.target)) {
                     self.speedDropdown.classList.remove('vsb-speed-dropdown-open');
                 }
             }
+            if (self.qualityDropdown && self.qualityDropdown.classList.contains('vsb-quality-dropdown-open')) {
+                if (!self.btnQuality.contains(e.target) && !self.qualityDropdown.contains(e.target)) {
+                    self.qualityDropdown.classList.remove('vsb-quality-dropdown-open');
+                }
+            }
         });
 
-        // Fullscreen change event (e.g., user presses Esc).
+        // Fullscreen change event.
         document.addEventListener('fullscreenchange', function () { self.onFullscreenChange(); });
         document.addEventListener('webkitfullscreenchange', function () { self.onFullscreenChange(); });
         document.addEventListener('mozfullscreenchange', function () { self.onFullscreenChange(); });
         document.addEventListener('MSFullscreenChange', function () { self.onFullscreenChange(); });
 
-        // If mobile: controls always visible, remove auto-hide.
+        // If mobile: controls always visible.
         if (this.isMobile) {
             this.controls.classList.add('vsb-controls-visible');
         }
@@ -368,9 +667,7 @@
 
     VSBCustomControls.prototype.togglePlay = function () {
         if (this.video.paused || this.video.ended) {
-            this.video.play().catch(function () {
-                // Play was prevented (e.g., autoplay policy). That's OK.
-            });
+            this.video.play().catch(function () {});
         } else {
             this.video.pause();
         }
@@ -418,6 +715,10 @@
 
     VSBCustomControls.prototype.toggleSpeedDropdown = function () {
         this.speedDropdown.classList.toggle('vsb-speed-dropdown-open');
+        // Close quality dropdown.
+        if (this.qualityDropdown) {
+            this.qualityDropdown.classList.remove('vsb-quality-dropdown-open');
+        }
     };
 
     // -------------------------------------------------------------------------
@@ -439,11 +740,13 @@
     };
 
     VSBCustomControls.prototype.onTimeUpdate = function () {
-        if (this.isDragging) {
-            return; // Don't fight the user while they're dragging.
-        }
+        if (this.isDragging) return;
         this.updateProgress();
         this.updateTimeDisplay();
+        // Update quality label periodically to reflect auto-quality changes.
+        if (this.hasHLS && this.currentQuality === -1) {
+            this.updateQualityLabel();
+        }
     };
 
     VSBCustomControls.prototype.onProgress = function () {
@@ -470,7 +773,6 @@
     };
 
     VSBCustomControls.prototype.onError = function () {
-        // Show error in the controls area.
         this.controls.classList.add('vsb-controls-error');
         var timeDisplay = this.timeDisplay;
         if (timeDisplay && !this.controls.querySelector('.vsb-error-text')) {
@@ -523,11 +825,11 @@
      * F          = fullscreen
      * M          = mute
      * Up/Down    = volume up/down 5%
+     * Q          = cycle quality levels (v2.0.0+)
      *
      * @param {KeyboardEvent} e
      */
     VSBCustomControls.prototype.onKeyDown = function (e) {
-        // Don't capture if user is typing in an input.
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
             return;
         }
@@ -564,6 +866,10 @@
                 e.preventDefault();
                 this.adjustVolume(-0.05);
                 break;
+            case 'q':
+                e.preventDefault();
+                this.cycleQuality();
+                break;
         }
     };
 
@@ -593,9 +899,7 @@
     };
 
     VSBCustomControls.prototype.hideControls = function () {
-        if (this.isMobile) {
-            return;
-        }
+        if (this.isMobile) return;
         if (!this.video.paused) {
             this.controls.classList.remove('vsb-controls-visible');
             this.controls.classList.add('vsb-controls-hidden');
@@ -659,7 +963,6 @@
                 var progress = (bufferedEnd / this.video.duration) * 100;
                 progress = Math.min(100, Math.max(0, progress));
                 this.progressBuffered.style.width = progress + '%';
-                // Also set CSS custom property on the progress bar for external theming.
                 this.progressBar.style.setProperty('--vsb-buffer-progress', progress + '%');
             }
         } catch (e) {
@@ -684,7 +987,7 @@
     // -------------------------------------------------------------------------
 
     /**
-     * Initialize custom controls for all matching wrappers on the page.
+     * Initialize HLS and custom controls for all matching wrappers.
      */
     function initCustomControls() {
         var wrappers = document.querySelectorAll('.vsb-video-wrapper.vsb-custom-controls');
@@ -693,20 +996,21 @@
             var wrapper = wrappers[i];
             var video = wrapper.querySelector('video');
 
-            if (!video) {
-                continue;
-            }
+            if (!video) continue;
 
-            // Check if it already has custom controls initialized.
-            if (video._vsbCustomControls) {
-                continue;
-            }
+            // Skip if already initialized.
+            if (video._vsbCustomControls) continue;
 
-            // Determine if buffer bar should be shown.
             var showBuffer = wrapper.classList.contains('vsb-show-buffer');
 
-            // Build custom controls.
-            var controls = new VSBCustomControls(video, wrapper, showBuffer);
+            // Gather HLS options from data attributes.
+            var hlsOptions = {};
+            if (video.getAttribute('data-vsb-hls')) {
+                hlsOptions.hlsUrl = video.getAttribute('data-vsb-hls');
+                hlsOptions.preferredQuality = video.getAttribute('data-vsb-preferred-quality') || 'auto';
+            }
+
+            var controls = new VSBCustomControls(video, wrapper, showBuffer, hlsOptions);
             video._vsbCustomControls = controls;
         }
     }
@@ -731,13 +1035,8 @@
         }
     }
 
-    /**
-     * Legacy: initialize buffer progress for a single video.
-     */
     function initBufferBar(video, bar) {
-        if (!video || !bar) {
-            return;
-        }
+        if (!video || !bar) return;
         bar.classList.add('vsb-buffering');
 
         function updateBuffer() {
@@ -763,9 +1062,6 @@
         updateBuffer();
     }
 
-    /**
-     * Legacy: handle video load errors.
-     */
     function handleVideoErrorLegacy(video) {
         video.addEventListener('error', function () {
             var wrapper = video.closest('.vsb-video-wrapper');
